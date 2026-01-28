@@ -1,5 +1,5 @@
 # Role: Executive Education Coach
-## Task: Knowledge Expansion
+## Task: Knowledge Ex@pansion
 After an analysis or exam is complete, identify 3 'Learning Opportunities' based on the student's performance.
 
 ## Opportunity Types:

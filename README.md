@@ -1,102 +1,104 @@
 # StudyBuddy
 
-A modern full-stack application built with Next.js, Prisma, and NextAuth.js.
+An MBA study tool for case analysis and mock exams, powered by Google Gemini with optional cross-model verification via OpenAI.
+
+## Features
+
+- **Case Analysis:** Upload PDF, DOCX, CSV, or images; get fast strategic analysis (BLUF, critical challenge, key insight, action).
+- **Audit Analysis:** Deep peer review of your analysis using frameworks (Porter's Five Forces, SWOT, McKinsey 7S, etc.) and a confidence score.
+- **Mock Exam:** Generate situational MCQ questions from lecture notes or uploaded materials; take the exam and see results with Professor's Notes.
+- **Learning Opportunities:** After an exam, get 3 personalized learning opportunities (concept deep-dives, related case studies, critical-thinking “What If” questions).
+- **Verify Quality:** Use OpenAI to verify Gemini-generated learning opportunities (score, issues, suggestions). Optional; requires `OPENAI_API_KEY`.
 
 ## Tech Stack
 
-- **Framework:** Next.js 14+ (App Router)
+- **Framework:** Next.js 16 (App Router)
 - **Language:** TypeScript
-- **Styling:** Tailwind CSS
-- **Database:** PostgreSQL (via Prisma)
-- **Authentication:** NextAuth.js (Auth.js)
-- **ORM:** Prisma
+- **Styling:** Tailwind CSS v4
+- **AI:** Google Generative AI (Gemini 2.5 Flash / Pro)
+- **Optional verification:** OpenAI API (for “Verify Quality”)
 
 ## Prerequisites
 
-- Node.js 18+ or Bun
-- PostgreSQL database (accessible via private network)
-- npm, yarn, pnpm, or bun
+- Node.js 18+
+- npm, yarn, or pnpm
 
-## Setup Instructions
+## Setup
 
-### 1. Install Dependencies
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-### 2. Configure Environment Variables
+### 2. Environment variables
 
-Create a `.env` file in the root directory with the following variables:
+Create a `.env.local` file in the project root:
 
 ```env
-# Database Configuration (Private Network)
-# Replace 192.168.1.100 with your actual private network database IP address
-# Common private network ranges: 192.168.x.x, 10.x.x.x, 172.16.x.x - 172.31.x.x
-DATABASE_URL="postgresql://user:password@192.168.1.100:5432/studybuddy?schema=public"
+# Required for Case Analysis, Mock Exam, and Learning Opportunities
+GEMINI_API_KEY=your_google_ai_api_key
 
-# NextAuth Configuration
-# Generate a secret with: openssl rand -base64 32
-NEXTAUTH_SECRET="your-secret-key-here"
-NEXTAUTH_URL="http://localhost:3000"
+# Optional: for "Verify Quality" on Learning Opportunities (cross-model verification)
+OPENAI_API_KEY=your_openai_api_key
 ```
 
-**Important:** This project is configured to use a **private network** database connection. Make sure:
-- Your PostgreSQL database is accessible on your private network
-- Replace the IP address (192.168.1.100) with your actual database server's private IP
-- Update the username, password, and database name as needed
-- Ensure your network allows connections to the database port (default: 5432)
+- **GEMINI_API_KEY:** Get it from [Google AI Studio](https://aistudio.google.com/apikey). Required for analysis, exams, and learning opportunities.
+- **OPENAI_API_KEY:** From [OpenAI](https://platform.openai.com/api-keys). Only needed if you use the “Verify Quality” button on learning opportunities.
 
-### 3. Set Up Database
-
-Generate Prisma Client:
-```bash
-npx prisma generate
-```
-
-Run database migrations:
-```bash
-npx prisma migrate dev
-```
-
-(Optional) Open Prisma Studio to view/edit your database:
-```bash
-npx prisma studio
-```
-
-### 4. Run Development Server
+### 3. Run the dev server
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3001](http://localhost:3001) in your browser.
 
-## Project Structure
+## Project structure
 
 ```
-studybuddy/
-├── app/              # Next.js App Router pages and layouts
-│   ├── api/          # API routes
+StudyBuddy/
+├── app/
+│   ├── actions/          # Server actions (Gemini, exam, verifier)
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx
+├── commands/             # Specs for prompts and behavior (@-reference in Cursor)
+│   ├── academic-peer-review.md
+│   ├── case-analyzer.md
+│   ├── cross-model-verification.md
+│   ├── exam-generator.md
+│   ├── learning-opportunity.md
 │   └── ...
-├── components/       # React components
-├── lib/              # Utility functions and helpers
-├── prisma/           # Prisma schema and migrations
-│   └── schema.prisma
-└── public/           # Static assets
+├── components/ui/        # Reusable UI components
+├── lib/                  # Utilities (e.g. file-utils)
+├── scripts/              # e.g. check-models.ts
+└── public/
 ```
 
-## Development Commands
+## Scripts
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npx prisma studio` - Open Prisma Studio
-- `npx prisma migrate dev` - Run database migrations
-- `npx prisma generate` - Generate Prisma Client
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Build for production |
+| `npm run start` | Start production server |
+| `npm run lint` | Run ESLint |
+| `npx tsx scripts/check-models.ts` | List Gemini models (uses `GEMINI_API_KEY` from `.env.local`) |
 
-## Learn More
+## File support
+
+- **Documents:** PDF, DOCX (via mammoth for .docx text extraction), CSV
+- **Images:** PNG, JPEG, GIF, WebP
+- **Not supported:** PPTX
+- Max file size: 20MB (see server action body limit in `next.config.ts`).
+
+## Documentation
+
+- **SOP.md** — Design, typography, workflow, and troubleshooting.
+- **commands/** — Prompt and behavior specs; reference these when changing AI flows (e.g. `@learning-opportunity.md`, `@cross-model-verification.md`).
+
+## Learn more
 
 - [Next.js Documentation](https://nextjs.org/docs)
-- [Prisma Documentation](https://www.prisma.io/docs)
-- [NextAuth.js Documentation](https://next-auth.js.org)
+- [Google AI for JavaScript](https://ai.google.dev/docs)

@@ -28,14 +28,15 @@ The application uses a 3-Tier fallback system to ensure 100% uptime:
 
 ## 3. Workflow Protocol
 Follow these steps for academic rigor:
-1. **Analyze:** Upload document (PDF/Image) -> Generate Initial Analysis.
+1. **Analyze:** Upload document (PDF, DOCX, CSV, or Image) -> Generate Initial Analysis.
 2. **Audit:** Click "Audit Analysis" to run `@academic-peer-review.md` using the "Pro" model.
 3. **Test:** Navigate to "Mock Exam" tab to generate situational questions via `@exam-generator.md`.
 4. **Learn:** Use the footer "Learning Opportunities" via `@learning-opportunity.md` to bridge knowledge gaps.
 
 ### 3.1 File Handling
-- **Supported Types:** PDF, PPTX, DOCX, CSV, Images (PNG, JPEG, GIF, WebP)
-- **File API Path:** Documents (PDF, PPTX, DOCX, CSV) use `GoogleAIFileManager` with `fileData: { fileUri, mimeType }` wrapper
+- **Supported Types:** PDF, DOCX, CSV, Images (PNG, JPEG, GIF, WebP)
+- **Not supported:** PPTX
+- **File API Path:** Documents (PDF, DOCX, CSV) use `GoogleAIFileManager` with `fileData: { fileUri, mimeType }` wrapper
 - **Inline Data Path:** Images use Base64 `inlineData` for smaller payloads
 - **Temp File Cleanup:** All temporary files uploaded via File API are automatically deleted after use
 
@@ -56,7 +57,7 @@ When modifying the application, the Agent MUST follow this sequence:
 4. **Architectural Guardrails:** No Prisma, no Docker, no external servers. Keep it lightweight.
 
 ## 5. Troubleshooting
-- **MIME Error:** If a file fails, ensure it is a PDF, PPTX, DOCX, CSV, or Image. PPTX/DOCX/CSV require the 'File API' path.
+- **MIME Error:** If a file fails, ensure it is a PDF, DOCX, CSV, or Image. DOCX/CSV require the 'File API' path. PPTX is not supported.
 - **Stream Error:** If the stream fails to parse, check the `extractJson` buffer logic in `app/page.tsx`.
 - **JSON Parse Error:** Verify Response Schema is configured correctly for Mock Exam. Check browser console for raw output.
 - **Quota Error (429):** The system should auto-shift to Tier 3. Automatic retry with 5-second delay (max 2 retries) before fallback.

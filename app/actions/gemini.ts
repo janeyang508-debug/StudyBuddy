@@ -9,6 +9,7 @@ import { GoogleAIFileManager } from "@google/generative-ai/server";
 import { writeFile, unlink } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
+import mammoth from "mammoth";
 
 // Initialize both
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -50,6 +51,20 @@ Output a JSON object with a key "questions" containing an array of question obje
 Format: {"questions": [{"question": "question text", "options": ["option1", "option2", "option3", "option4"], "correctIndex": 0, "rationale": "explanation"}]}
 
 Generate 5-8 questions.`;
+
+// Learning Opportunity system instruction (from learning-opportunity.md)
+// If updating, sync with commands/learning-opportunity.md
+const LEARNING_OPPORTUNITY_SYSTEM_INSTRUCTION = `You are an Executive Education Coach. After an exam is complete, identify 3 'Learning Opportunities' based on the student's performance.
+
+## Opportunity Types:
+- **Concept Deep-dive:** If the student missed a Finance, marketing, sales or strategy question, explain the underlying formula or concept.
+- **Related Case Studies:** Mention a famous real-world company facing a similar problem.
+- **Critical Thinking:** Ask a 'What If' question to test the student's adaptability (e.g., 'What if interest rates doubled?').
+
+## Goal:
+Encourage active recall and curiosity. Never end a session with just 'Correct/Incorrect'.
+
+Provide your response in a clear, structured format with 3 distinct learning opportunities.`;
 
 export interface FilePart {
   mimeType: string;
@@ -177,6 +192,23 @@ async function uploadFileToGemini(
 function estimateFileSize(base64Data: string): number {
   // Base64 is roughly 4/3 of original size
   return (base64Data.length * 3) / 4;
+}
+
+// Helper function to convert .docx files to text using mammoth
+async function convertDocxToText(filePart: FilePart): Promise<string> {
+  try {
+    // Convert base64 to buffer
+    const buffer = Buffer.from(filePart.data, 'base64');
+    
+    // Convert .docx to HTML first, then extract text
+    const result = await mammoth.extractRawText({ buffer });
+    
+    // Return the extracted text
+    return result.value;
+  } catch (error) {
+    console.error("Error converting .docx to text:", error);
+    throw new Error(`Failed to convert .docx file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 // Helper to determine if a file should use File API (large documents) or inlineData (small files)
@@ -340,6 +372,9 @@ export async function generateMbaInsight(
     const cacheKey = `${type}-${brainMode}-${optimizedFiles.map(f => f.mimeType).join(',')}`;
     sessionFileCache.set(cacheKey, optimizedFiles);
     
+    // Collect converted .docx text to add to prompt
+    const docxTexts: string[] = [];
+    
     // Process each file - Small File Shortcut: PDF/Image < 4MB use inlineData (faster)
     for (const file of optimizedFiles) {
       const fileSizeBytes = estimateFileSize(file.data);
@@ -347,6 +382,20 @@ export async function generateMbaInsight(
       
       // Logging: File processing decision
       console.log(`[Server] Processing file: ${file.mimeType}, Size: ${sizeMB.toFixed(2)}MB`);
+      
+      // Special handling for .docx files: convert to text using mammoth
+      if (file.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        console.log(`[Server] Converting .docx to text using mammoth`);
+        try {
+          const docxText = await convertDocxToText(file);
+          docxTexts.push(docxText);
+          console.log(`[Server] Successfully converted .docx to text (${docxText.length} characters)`);
+          continue; // Skip file upload, text will be added to prompt
+        } catch (conversionError) {
+          console.error(`[Server] Failed to convert .docx to text, falling back to File API:`, conversionError);
+          // Fall through to File API upload as fallback
+        }
+      }
       
       if (shouldUseFileAPI(file.mimeType, fileSizeBytes)) {
         // Use File API for large files (>= 4MB) or Office documents
@@ -381,6 +430,16 @@ export async function generateMbaInsight(
           },
         });
       }
+    }
+    
+    // Add converted .docx text to prompt if any
+    if (docxTexts.length > 0) {
+      const docxContent = docxTexts.map((text, index) => 
+        `\n\n--- Document ${index + 1} (from .docx file) ---\n\n${text}`
+      ).join('\n\n');
+      
+      // Prepend docx content to the prompt
+      fullPrompt = `${docxContent}\n\n---\n\n${fullPrompt}`;
     }
     
     // Logging: Final parts array for files
@@ -600,7 +659,7 @@ export async function generateDeepCritique(
 5. Provide a Confidence Score (1-10) with justification based on soundness of business principles, completeness of risk assessment, depth of strategic insight, and accuracy of framework application.`;
   
   const courseContext = course ? `Course Context: ${course}\n\n` : "";
-  const fullPrompt = `${courseContext}${prompt}`;
+  let fullPrompt = `${courseContext}${prompt}`;
 
   // Build parts array
   // Support both inlineData (for images) and fileData (for documents via File API)
@@ -633,12 +692,29 @@ export async function generateDeepCritique(
 
     const optimizedFiles = optimizeFileParts(validFiles);
     
+    // Collect converted .docx text to add to prompt
+    const docxTexts: string[] = [];
+    
     for (const file of optimizedFiles) {
       const fileSizeBytes = estimateFileSize(file.data);
       const sizeMB = fileSizeBytes / (1024 * 1024);
       
       // Logging: File processing decision
       console.log(`[Server] Processing file for audit: ${file.mimeType}, Size: ${sizeMB.toFixed(2)}MB`);
+      
+      // Special handling for .docx files: convert to text using mammoth
+      if (file.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        console.log(`[Server] Converting .docx to text using mammoth for audit`);
+        try {
+          const docxText = await convertDocxToText(file);
+          docxTexts.push(docxText);
+          console.log(`[Server] Successfully converted .docx to text for audit (${docxText.length} characters)`);
+          continue; // Skip file upload, text will be added to prompt
+        } catch (conversionError) {
+          console.error(`[Server] Failed to convert .docx to text for audit, falling back to File API:`, conversionError);
+          // Fall through to File API upload as fallback
+        }
+      }
       
       if (shouldUseFileAPI(file.mimeType, fileSizeBytes)) {
         // Use File API for large files (>= 4MB) or Office documents
@@ -673,6 +749,16 @@ export async function generateDeepCritique(
           },
         });
       }
+    }
+    
+    // Add converted .docx text to prompt if any
+    if (docxTexts.length > 0) {
+      const docxContent = docxTexts.map((text, index) => 
+        `\n\n--- Document ${index + 1} (from .docx file) ---\n\n${text}`
+      ).join('\n\n');
+      
+      // Prepend docx content to the prompt
+      fullPrompt = `${docxContent}\n\n---\n\n${fullPrompt}`;
     }
     
     // Logging: Final parts array for files
@@ -715,6 +801,80 @@ export async function generateDeepCritique(
         }
       } catch (error) {
         console.error("Unexpected error in deep critique stream:", error);
+        const errorMsg = error instanceof Error ? error.message : "Unexpected error";
+        controller.enqueue(encoder.encode(`\0ERROR:${errorMsg}`));
+        controller.close();
+      }
+    },
+  });
+}
+
+// Generate learning opportunities based on exam results
+export async function generateLearningOpportunities(
+  examQuestions: ExamQuestion[],
+  selectedAnswers: { [key: number]: number },
+  course?: string
+): Promise<ReadableStream<Uint8Array>> {
+  // Calculate which questions were answered incorrectly
+  const incorrectQuestions: ExamQuestion[] = [];
+  examQuestions.forEach((q, idx) => {
+    if (selectedAnswers[idx] !== q.correctIndex) {
+      incorrectQuestions.push(q);
+    }
+  });
+
+  // Build prompt with exam results
+  const courseContext = course ? `Course Context: ${course}\n\n` : "";
+  const score = {
+    correct: examQuestions.filter((q, idx) => selectedAnswers[idx] === q.correctIndex).length,
+    total: examQuestions.length,
+  };
+  
+  let prompt = `${courseContext}The student completed an exam with a score of ${score.correct}/${score.total} (${Math.round((score.correct / score.total) * 100)}%).
+
+Exam Questions and Answers:
+${examQuestions.map((q, idx) => {
+  const isCorrect = selectedAnswers[idx] === q.correctIndex;
+  const selectedOption = q.options[selectedAnswers[idx] || -1] || 'Not answered';
+  return `Q${idx + 1}: ${q.question}
+Selected: ${selectedOption} ${isCorrect ? '✓' : '✗'}
+Correct Answer: ${q.options[q.correctIndex]}
+Professor's Note: ${q.rationale}
+`;
+}).join('\n')}
+
+${incorrectQuestions.length > 0 ? `\nQuestions answered incorrectly:\n${incorrectQuestions.map((q, idx) => `- ${q.question}`).join('\n')}` : '\nThe student answered all questions correctly!'}
+
+Based on this performance, generate 3 Learning Opportunities following the guidelines in learning-opportunity.md.`;
+
+  // Use the learning opportunity system instruction
+  const parts = [{ text: prompt }];
+
+  const generationConfig = {
+    temperature: 0.7, // Slightly higher for more creative learning opportunities
+  };
+
+  const encoder = new TextEncoder();
+  
+  return new ReadableStream({
+    async start(controller) {
+      try {
+        controller.enqueue(encoder.encode(`\0MODEL:Gemini 2.5 Flash (Learning Opportunities)\n`));
+        
+        try {
+          // Use Flash for speed
+          for await (const chunk of generateWithModelStream(genAI, "gemini-2.5-flash", LEARNING_OPPORTUNITY_SYSTEM_INSTRUCTION, parts, generationConfig)) {
+            controller.enqueue(encoder.encode(chunk));
+          }
+          controller.close();
+        } catch (error) {
+          console.error("Error generating learning opportunities:", error);
+          const errorMsg = error instanceof Error ? error.message : "Failed to generate learning opportunities";
+          controller.enqueue(encoder.encode(`\0ERROR:${errorMsg}`));
+          controller.close();
+        }
+      } catch (error) {
+        console.error("Unexpected error in learning opportunities stream:", error);
         const errorMsg = error instanceof Error ? error.message : "Unexpected error";
         controller.enqueue(encoder.encode(`\0ERROR:${errorMsg}`));
         controller.close();

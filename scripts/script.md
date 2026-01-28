@@ -33,7 +33,7 @@ npm run dev
 ```
 
 Starts the Next.js development server. The server will:
-- Run on `http://localhost:3000` (or next available port if 3000 is in use)
+- Run on `http://localhost:3001` (default); use `npm run dev:3000` for port 3000
 - Enable hot-reloading for development
 - Load environment variables from `.env.local`
 

@@ -4,9 +4,10 @@ import { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { generateMbaInsight, generateDeepCritique, type FilePart, type BrainMode } from "@/app/actions/gemini";
+import { generateMbaInsight, generateDeepCritique, generateLearningOpportunities, type FilePart, type BrainMode } from "@/app/actions/gemini";
 import { generateExam, type ExamQuestion } from "@/app/actions/exam";
 import { processFile, validateFile, type FileData } from "@/lib/file-utils";
+import { verifyContent } from "@/app/actions/verifier";
 import ReactMarkdown from "react-markdown";
 
 type CaseAnalysisStep = "upload" | "results";
@@ -39,6 +40,10 @@ export default function Dashboard() {
   const [uploadedExamFiles, setUploadedExamFiles] = useState<FileData[]>([]);
   const [examScore, setExamScore] = useState<{ correct: number; total: number; percentage: number } | null>(null);
   const [examProcessingStatus, setExamProcessingStatus] = useState<string>("");
+  const [learningOpportunities, setLearningOpportunities] = useState<string>("");
+  const [isGeneratingLearningOpportunities, setIsGeneratingLearningOpportunities] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<{ score: number; verified: boolean; feedback: string; issues: string[]; suggestions: string[] } | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   // Shared state
   const [error, setError] = useState<string>("");
@@ -490,6 +495,121 @@ Keep total response under 400 words. Use bullet points. Avoid verbose explanatio
     setExamScore(score);
     setShowResults(true);
     setExamStep("explore");
+    // Generate learning opportunities automatically
+    handleGenerateLearningOpportunities();
+  };
+
+  const handleGenerateLearningOpportunities = async () => {
+    if (examQuestions.length === 0) {
+      return;
+    }
+
+    setIsGeneratingLearningOpportunities(true);
+    setError("");
+    setLearningOpportunities("");
+
+    try {
+      const stream = await generateLearningOpportunities(
+        examQuestions,
+        selectedAnswers,
+        modelContext || undefined
+      );
+
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedText = "";
+      let buffer = "";
+
+      try {
+        while (true) {
+          try {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+              if (buffer.trim()) {
+                accumulatedText += buffer;
+                setLearningOpportunities(accumulatedText);
+              }
+              break;
+            }
+
+            try {
+              const chunk = decoder.decode(value, { stream: true });
+              buffer += chunk;
+              
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || "";
+
+              for (const line of lines) {
+                try {
+                  if (line.startsWith('\0MODEL:')) {
+                    // Model info - can be ignored
+                  } else if (line.startsWith('\0ERROR:')) {
+                    const errorMsg = line.substring(7).trim();
+                    setError(errorMsg);
+                    setIsGeneratingLearningOpportunities(false);
+                    return;
+                  } else if (line.trim() && !line.startsWith('\0')) {
+                    accumulatedText += line + '\n';
+                    setLearningOpportunities(accumulatedText);
+                  }
+                } catch (lineError) {
+                  console.warn("Error processing line:", lineError);
+                  continue;
+                }
+              }
+            } catch (chunkError) {
+              console.warn("Error decoding chunk:", chunkError);
+              continue;
+            }
+          } catch (readError) {
+            console.error("Error reading stream:", readError);
+            setError("Stream reading error. Please try again.");
+            break;
+          }
+        }
+      } catch (streamError) {
+        console.error("Stream error:", streamError);
+        setError("Stream processing error. Please try again.");
+      } finally {
+        try {
+          reader.releaseLock();
+        } catch (releaseError) {
+          console.warn("Error releasing reader:", releaseError);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate learning opportunities");
+    } finally {
+      setIsGeneratingLearningOpportunities(false);
+    }
+  };
+
+  const handleVerifyLearningOpportunities = async () => {
+    if (!learningOpportunities.trim()) {
+      setError("No learning opportunities to verify. Please generate them first.");
+      return;
+    }
+
+    setIsVerifying(true);
+    setError("");
+    setVerificationResult(null);
+
+    try {
+      const context = `These learning opportunities were generated based on an exam with ${examQuestions.length} questions.`;
+      const result = await verifyContent(learningOpportunities, "openai", context);
+      setVerificationResult(result);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to verify learning opportunities";
+      setError(errorMessage);
+      if (errorMessage.includes("OPENAI_API_KEY")) {
+        setError("OpenAI API key not configured. Please add OPENAI_API_KEY to your .env.local file.");
+      } else if (errorMessage.includes("not installed")) {
+        setError("OpenAI package not installed. Run: npm install openai");
+      }
+    } finally {
+      setIsVerifying(false);
+    }
   };
 
   const handleDeepCritique = async () => {
@@ -631,6 +751,10 @@ Keep total response under 400 words. Use bullet points. Avoid verbose explanatio
     setExamScore(null);
     setCurrentQuestionIndex(0);
     setIsGeneratingExam(false);
+    setLearningOpportunities("");
+    setIsGeneratingLearningOpportunities(false);
+    setVerificationResult(null);
+    setIsVerifying(false);
   };
 
   const currentQuestion = examQuestions[currentQuestionIndex];
@@ -1065,25 +1189,158 @@ Keep total response under 400 words. Use bullet points. Avoid verbose explanatio
               );
             })}
             {examStep === "explore" && (
-              <div className="p-6 bg-slate-50 rounded-lg border border-slate-200 mt-8">
-                <h3 className="text-xl font-semibold text-slate-900 mb-4">Explore Further</h3>
-                <p className="text-slate-700 mb-4">
-                  Would you like to generate follow-up questions or dive deeper into any specific topic?
-                </p>
-                <Button
-                  onClick={() => {
-                    setExamStep("upload");
-                    setExamQuestions([]);
-                    setSelectedAnswers({});
-                    setShowResults(false);
-                    setExamScore(null);
-                    setUploadedExamFiles([]);
-                    setLectureNotes("");
-                  }}
-                  variant="outline"
-                >
-                  Start New Exam
-                </Button>
+              <div className="space-y-6 mt-8">
+                {/* Learning Opportunities Section */}
+                <div className="p-6 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                  <h3 className="text-xl font-semibold text-slate-900 mb-4">Learning Opportunities</h3>
+                  {isGeneratingLearningOpportunities && !learningOpportunities && (
+                    <div className="flex items-center gap-3">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#1e3a8a]"></div>
+                      <p className="text-sm text-slate-600">Generating personalized learning opportunities...</p>
+                    </div>
+                  )}
+                  {learningOpportunities && (
+                    <div>
+                      <div className="mb-4 flex items-center justify-between gap-4">
+                        <div className="flex-1"></div>
+                        <Button
+                          onClick={handleVerifyLearningOpportunities}
+                          disabled={isVerifying}
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                        >
+                          {isVerifying ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#1e3a8a] mr-2"></div>
+                              Verifying...
+                            </>
+                          ) : (
+                            "Verify Quality"
+                          )}
+                        </Button>
+                      </div>
+                      <div className="prose prose-slate max-w-none" style={{ fontFamily: "'Calibri', 'Inter', 'Segoe UI', 'Arial', sans-serif" }}>
+                        <ReactMarkdown
+                          components={{
+                            h1: ({node, ...props}) => (
+                              <h1 className="text-2xl font-bold mb-4 mt-0 text-slate-900" {...props} />
+                            ),
+                            h2: ({node, ...props}) => (
+                              <h2 className="text-xl font-semibold mb-3 mt-6 text-slate-900 first:mt-0" {...props} />
+                            ),
+                            h3: ({node, ...props}) => (
+                              <h3 className="text-lg font-semibold mb-2 mt-4 text-slate-900" {...props} />
+                            ),
+                            p: ({node, ...props}) => (
+                              <p className="text-justify text-base leading-relaxed mb-4 text-slate-800" style={{ textAlign: 'justify', textAlignLast: 'left' }} {...props} />
+                            ),
+                            ul: ({node, ...props}) => (
+                              <ul className="list-disc list-outside mb-4 space-y-2 text-slate-700 ml-6" {...props} />
+                            ),
+                            ol: ({node, ...props}) => (
+                              <ol className="list-decimal list-outside mb-4 space-y-2 text-slate-700 ml-6" {...props} />
+                            ),
+                            li: ({node, ...props}) => (
+                              <li className="text-slate-700 leading-relaxed" {...props} />
+                            ),
+                            strong: ({node, ...props}) => (
+                              <strong className="font-semibold text-slate-900" {...props} />
+                            ),
+                            code: ({node, ...props}) => (
+                              <code className="bg-slate-100 px-2 py-1 rounded text-sm font-mono text-slate-800" {...props} />
+                            ),
+                            blockquote: ({node, ...props}) => (
+                              <blockquote className="border-l-4 border-[#1e3a8a] pl-4 italic text-slate-600 my-4" {...props} />
+                            ),
+                          }}
+                        >
+                          {learningOpportunities}
+                        </ReactMarkdown>
+                      </div>
+                      {verificationResult && (
+                        <div className="mt-6 pt-6 border-t border-blue-300">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-lg font-semibold text-slate-900">Quality Verification</h4>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-2xl font-bold ${verificationResult.verified ? 'text-green-600' : 'text-orange-600'}`}>
+                                {verificationResult.score.toFixed(1)}/10
+                              </span>
+                              {verificationResult.verified ? (
+                                <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                                  ✓ Verified
+                                </span>
+                              ) : (
+                                <span className="px-3 py-1 bg-orange-100 text-orange-800 rounded-full text-sm font-medium">
+                                  Needs Review
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {verificationResult.issues.length > 0 && (
+                            <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                              <h5 className="font-semibold text-orange-900 mb-2">Issues Found:</h5>
+                              <ul className="list-disc list-inside space-y-1 text-sm text-orange-800">
+                                {verificationResult.issues.map((issue, idx) => (
+                                  <li key={idx}>{issue}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {verificationResult.suggestions.length > 0 && (
+                            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                              <h5 className="font-semibold text-blue-900 mb-2">Suggestions:</h5>
+                              <ul className="list-disc list-inside space-y-1 text-sm text-blue-800">
+                                {verificationResult.suggestions.map((suggestion, idx) => (
+                                  <li key={idx}>{suggestion}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                            <h5 className="font-semibold text-slate-900 mb-2">Detailed Feedback:</h5>
+                            <p className="text-sm text-slate-700 whitespace-pre-wrap">{verificationResult.feedback}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {!isGeneratingLearningOpportunities && !learningOpportunities && (
+                    <div className="text-slate-600">
+                      <p className="mb-4">Click below to generate personalized learning opportunities based on your exam performance.</p>
+                      <Button
+                        onClick={handleGenerateLearningOpportunities}
+                        variant="default"
+                        className="bg-[#1e3a8a] hover:bg-[#1e40af] text-white"
+                      >
+                        Generate Learning Opportunities
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Explore Further Section */}
+                <div className="p-6 bg-slate-50 rounded-lg border border-slate-200">
+                  <h3 className="text-xl font-semibold text-slate-900 mb-4">Explore Further</h3>
+                  <p className="text-slate-700 mb-4">
+                    Would you like to generate follow-up questions or dive deeper into any specific topic?
+                  </p>
+                  <Button
+                    onClick={() => {
+                      setExamStep("upload");
+                      setExamQuestions([]);
+                      setSelectedAnswers({});
+                      setShowResults(false);
+                      setExamScore(null);
+                      setUploadedExamFiles([]);
+                      setLectureNotes("");
+                      setLearningOpportunities("");
+                    }}
+                    variant="outline"
+                  >
+                    Start New Exam
+                  </Button>
+                </div>
               </div>
             )}
           </div>
