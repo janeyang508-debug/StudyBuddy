@@ -98,6 +98,57 @@ StudyBuddy/
 - **SOP.md** — Design, typography, workflow, and troubleshooting.
 - **commands/** — Prompt and behavior specs; reference these when changing AI flows (e.g. `@learning-opportunity.md`, `@cross-model-verification.md`).
 
+## Deploy to Google Cloud Run
+
+### Prerequisites
+
+- [Google Cloud CLI (`gcloud`)](https://cloud.google.com/sdk/docs/install) installed and authenticated
+- A GCP project with billing enabled
+
+### First-time setup
+
+```bash
+# Enable required APIs
+gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com
+
+# Create a Docker repository in Artifact Registry
+gcloud artifacts repositories create studybuddy-repo \
+  --repository-format=docker \
+  --location=us-central1 \
+  --description="StudyBuddy Docker images"
+```
+
+### Build and deploy
+
+```bash
+# Build the image in the cloud
+gcloud builds submit \
+  --tag us-central1-docker.pkg.dev/YOUR_PROJECT_ID/studybuddy-repo/studybuddy:latest
+
+# Deploy to Cloud Run
+gcloud run deploy studybuddy \
+  --image us-central1-docker.pkg.dev/YOUR_PROJECT_ID/studybuddy-repo/studybuddy:latest \
+  --region us-central1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --port 3000 \
+  --memory 512Mi \
+  --set-env-vars "GEMINI_API_KEY=your-api-key"
+```
+
+> **Tip:** For production, use [Secret Manager](https://cloud.google.com/secret-manager) instead of plain env vars:
+> ```bash
+> echo -n "your-api-key" | gcloud secrets create gemini-api-key --data-file=-
+> gcloud run deploy studybuddy ... --set-secrets "GEMINI_API_KEY=gemini-api-key:latest"
+> ```
+
+### Re-deploy after code changes
+
+```bash
+gcloud builds submit --tag us-central1-docker.pkg.dev/YOUR_PROJECT_ID/studybuddy-repo/studybuddy:latest
+gcloud run deploy studybuddy --image us-central1-docker.pkg.dev/YOUR_PROJECT_ID/studybuddy-repo/studybuddy:latest --region us-central1
+```
+
 ## Learn more
 
 - [Next.js Documentation](https://nextjs.org/docs)
