@@ -41,6 +41,7 @@ export async function verifyWithClaude(
 
   // Dynamic import to avoid errors if package not installed
   try {
+    // @ts-expect-error - @anthropic-ai/sdk is an optional dependency
     const { Anthropic } = await import("@anthropic-ai/sdk");
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -114,6 +115,7 @@ export async function verifyWithOpenAI(
   }
 
   try {
+    // @ts-expect-error - openai is an optional dependency
     const OpenAI = (await import("openai")).default;
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 

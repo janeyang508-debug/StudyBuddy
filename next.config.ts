@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Output standalone build for Docker / Cloud Run deployment
+  output: "standalone",
   experimental: {
     serverActions: {
       // Increase body size limit to handle large file uploads

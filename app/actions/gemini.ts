@@ -1,7 +1,7 @@
 "use server";
 
 // Main SDK for the AI model
-import { GoogleGenerativeAI, SafetySetting } from "@google/generative-ai";
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold, SchemaType, Part } from "@google/generative-ai";
 
 // Server-only SDK for handling PDFs and PowerPoints
 import { GoogleAIFileManager } from "@google/generative-ai/server";
@@ -16,22 +16,22 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY!);
 
 // Safety settings: BLOCK_ONLY_HIGH to allow rigorous business/risk analysis
-const safetySettings: SafetySetting[] = [
+const safetySettings = [
   {
-    category: "HARM_CATEGORY_HARASSMENT",
-    threshold: "BLOCK_ONLY_HIGH",
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
   },
   {
-    category: "HARM_CATEGORY_HATE_SPEECH",
-    threshold: "BLOCK_ONLY_HIGH",
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
   },
   {
-    category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-    threshold: "BLOCK_ONLY_HIGH",
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
   },
   {
-    category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-    threshold: "BLOCK_ONLY_HIGH",
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
   },
 ];
 
@@ -241,16 +241,9 @@ async function* generateWithModelStream(
   genAI: GoogleGenerativeAI,
   modelName: string,
   systemInstruction: string,
-  parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string }; fileData?: { fileUri: string; mimeType: string } }>,
-  generationConfig?: { 
-    temperature?: number;
-    responseMimeType?: string;
-    responseSchema?: {
-      type: string;
-      properties?: any;
-      required?: string[];
-    };
-  }
+  parts: Part[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  generationConfig?: Record<string, any>
 ): AsyncGenerator<string, void, unknown> {
   const model = genAI.getGenerativeModel({
     model: modelName,
@@ -336,7 +329,7 @@ export async function generateMbaInsight(
 
   // Build parts array for multimodal input
   // Support both inlineData (for images) and fileData (for documents via File API)
-  let parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string }; fileData?: { fileUri: string; mimeType: string } }> = [];
+  const parts: Part[] = [];
 
   // Add file parts if provided
   if (files && files.length > 0) {
@@ -462,30 +455,30 @@ export async function generateMbaInsight(
         temperature: 0.5,
         responseMimeType: "application/json" as const,
         responseSchema: {
-          type: "object",
+          type: SchemaType.OBJECT,
           properties: {
             questions: {
-              type: "array",
+              type: SchemaType.ARRAY,
               items: {
-                type: "object",
+                type: SchemaType.OBJECT,
                 properties: {
                   question: {
-                    type: "string",
+                    type: SchemaType.STRING,
                     description: "The question text"
                   },
                   options: {
-                    type: "array",
+                    type: SchemaType.ARRAY,
                     items: {
-                      type: "string"
+                      type: SchemaType.STRING
                     },
                     description: "Array of answer options"
                   },
                   correctIndex: {
-                    type: "number",
+                    type: SchemaType.NUMBER,
                     description: "Zero-based index of the correct answer"
                   },
                   rationale: {
-                    type: "string",
+                    type: SchemaType.STRING,
                     description: "Explanation of why the correct answer is right"
                   }
                 },
@@ -663,7 +656,7 @@ export async function generateDeepCritique(
 
   // Build parts array
   // Support both inlineData (for images) and fileData (for documents via File API)
-  let parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string }; fileData?: { fileUri: string; mimeType: string } }> = [];
+  const parts: Part[] = [];
 
   // Add file parts if provided (for reference)
   // Small File Shortcut: PDF/Image < 4MB use inlineData (faster)
@@ -848,7 +841,7 @@ ${incorrectQuestions.length > 0 ? `\nQuestions answered incorrectly:\n${incorrec
 Based on this performance, generate 3 Learning Opportunities following the guidelines in learning-opportunity.md.`;
 
   // Use the learning opportunity system instruction
-  const parts = [{ text: prompt }];
+  const parts: Part[] = [{ text: prompt }];
 
   const generationConfig = {
     temperature: 0.7, // Slightly higher for more creative learning opportunities
