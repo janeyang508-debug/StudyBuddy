@@ -1,0 +1,10 @@
+{
+  "seeds": [
+    { "title": "Come Away With Me", "artist": "Norah Jones" },
+    { "title": "Fade", "artist": "Kanye West" },
+    { "title": "七里香", "artist": "周杰伦" },
+    { "title": "Skinny Love", "artist": "Bon Iver" },
+    { "title": "我记得", "artist": "赵雷" }
+  ],
+  "favorites": []
+}

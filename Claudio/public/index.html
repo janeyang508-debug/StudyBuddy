@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claudio</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Claudio</h1>
+      <span id="status">idle</span>
+    </header>
+
+    <section id="dj-say">
+      <p id="say-text">Ask me what to play.</p>
+    </section>
+
+    <section id="player">
+      <div id="song-info">
+        <span id="song-title">—</span>
+        <span id="song-artist"></span>
+      </div>
+      <audio id="audio" controls></audio>
+      <div id="queue"></div>
+    </section>
+
+    <section id="chat">
+      <input id="input" type="text" placeholder="What do you want to hear?" autocomplete="off" />
+      <button id="send">→</button>
+    </section>
+  </div>
+
+  <script src="player.js"></script>
+</body>
+</html>
